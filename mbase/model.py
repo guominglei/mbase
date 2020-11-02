@@ -8,12 +8,11 @@
 '''
 
 from copy import deepcopy
+from typing import Iterable, List, Optional
 
-from typing import Iterable, List
-
-from mbase.connect import HB_POOL
-from mbase.fields import BaseField, BaseFamily
 from mbase.manager import model_manages
+from mbase.connect import hb_connection
+from mbase.fields import BaseField, BaseFamily
 
 
 class ModelMeta(type):
@@ -30,7 +29,7 @@ class ModelMeta(type):
 
 class BaseModel(metaclass=ModelMeta):
     TABLE_NAME = ''
-    POOL = HB_POOL
+    conn = hb_connection
 
     def __init__(self, **fields):
         # print('init fields', fields)
@@ -111,32 +110,25 @@ class BaseModel(metaclass=ModelMeta):
             print('instance no pk')
             return
         # 持久化
-        self.__class__.batch_insert([[self.pk, self.to_db()]])
+        self.conn.batch_insert(self.__class__.TABLE_NAME, [[self.pk, self.to_db()]])
 
-    def delete(self, fields: List[BaseField] = []):
+    def delete(self, fields: List[Optional[BaseField]] = []):
         # 删除整行 或者删除整列。暂不支持列族下的子列
         if not self.pk:
             print('instance no pk')
             return
 
-        with self.__class__.POOL.connection() as conn:
-            table_list = conn.tables()
-            exists_tables = [item.decode('utf-8') for item in table_list]
-            if self.__class__.TABLE_NAME not in exists_tables:
-                print("table:{} not is exists")
-                return
-
-            table = conn.table(self.__class__.TABLE_NAME)
-            columns = []
-            if fields:
-                for field in fields:
+        columns = []
+        if fields:
+            for field in fields:
+                if isinstance(field, str):
+                    columns.append(field)
+                else:
                     columns.append(field.db_name())
-            if columns:
-                print(f"delete:{self.pk} colums:{columns}")
-                table.delete(self.pk, columns=columns)
-            else:
-                print(f"delete:{self.pk}")
-                table.delete(self.pk)
+        is_ok = self.conn.delete(self.__class__.TABLE_NAME, self.pk, columns=columns)
+        if not is_ok:
+            print('delete error')
+        return
 
     @classmethod
     def generate_pk(cls, *args, **kwargs) -> str:
@@ -202,16 +194,7 @@ class BaseModel(metaclass=ModelMeta):
             print(f"create:{cls.__name__} table error not generate tableconfig")
             return is_ok
 
-        with cls.POOL.connection() as conn:
-            table_list = conn.tables()
-            for old_table_name in table_list:
-                if old_table_name.decode("utf-8") == table_name:
-                    print(f"table:{cls.TABLE_NAME} is exists")
-                    return is_ok
-
-            conn.create_table(table_name, table_config)
-            is_ok = True
-
+        is_ok = cls.conn.create_table(table_name, table_config)
         return is_ok
 
     @classmethod
@@ -224,55 +207,24 @@ class BaseModel(metaclass=ModelMeta):
             print('params error')
             return is_ok
 
-        with cls.POOL.connection() as conn:
-            table_list = conn.tables()
-            exists_tables = [item.decode('utf-8') for item in table_list]
-            if cls.TABLE_NAME not in exists_tables:
-                print("table:{} not is exists")
-                return is_ok
-
-            table = conn.table(cls.TABLE_NAME)
-            # 插入数据
-            with table.batch(batch_size=batch_size) as batch:
-                for key, value_dict in data_generate:
-                    print(key, value_dict)
-                    batch.put(key, value_dict)
-
-            is_ok = True
+        is_ok = cls.conn.batch_insert(cls.TABLE_NAME, data_generate, batch_size=batch_size)
 
         return is_ok
 
     @classmethod
-    def get_items_by_pks(cls, row_keys: List[str], columns: List[str] = []) -> dict:
+    def get_items_by_pks(cls, row_keys: List[str]) -> dict:
 
         result = {}
 
-        with cls.POOL.connection() as conn:
-            table_list = conn.tables()
-            exists_tables = [item.decode('utf-8') for item in table_list]
-            if cls.TABLE_NAME not in exists_tables:
-                print("table:{} not is exists")
-                return result
+        columns = []
+        raw_lines_dict = cls.conn.get_items_by_pks(cls.TABLE_NAME, row_keys=row_keys, columns=columns)
 
-            table = conn.table(cls.TABLE_NAME)
-            rows = table.rows(row_keys, columns=columns)
-            for key, value in rows:
-                info = {}
-                key = key.decode('utf-8')
-                for k, v in value.items():
-                    k = k.decode('utf-8')
-                    v = v.decode('utf-8')
-                    parent, child = k.split(':')
-                    if child:
-                        parent_info = info.get(parent, {})
-                        parent_info[child] = v
-                        info[parent] = parent_info
-                    else:
-                        info[parent] = v
-                instance = cls()
-                instance.to_python(info)
-                instance.pk = key
-                result[key] = instance
+        for key, raw_json in raw_lines_dict.items():
+
+            instance = cls()
+            instance.to_python(raw_json)
+            instance.pk = key
+            result[key] = instance
 
         return result
 

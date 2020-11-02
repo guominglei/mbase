@@ -13,7 +13,7 @@ class ModelManager(object):
         self.models = {}
 
     def register(self, table_name, model_class):
-        print(table_name)
+        # print(table_name)
         self.models[table_name] = model_class
 
     def init_db(self):

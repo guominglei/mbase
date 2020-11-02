@@ -59,6 +59,9 @@ class BaseField(object):
         if instance is None:
             return self
         data = instance.__dict__
+        if isinstance(instance, BaseFamily):
+            if self.name not in instance.__dict__:
+                return self.db_name()
         return data[self.name]
 
     def __set__(self, instance, value):

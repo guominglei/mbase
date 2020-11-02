@@ -62,4 +62,4 @@ def delete_test():
     account = Account.get_item_by_pk(pk)
     print(account.info.email)
     if account:
-        account.delete(fields=[StatInfoFamily.email])
+        account.delete(fields=[Account.name, Account.info.email])
