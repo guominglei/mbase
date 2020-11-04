@@ -4,39 +4,63 @@
     @Author  : minglei.guo
     @Contact : minglei@skyplatanus.com
     @Version : 1.0
-    @Time    : 2020-10-30
+    @Time    : 2020-11-02
 '''
 
+import time
 from copy import deepcopy
 from typing import Iterable, List, Optional
 
 from mbase.manager import model_manages
-from mbase.connect import hb_connection
-from mbase.fields import BaseField, BaseFamily
+from mbase.db.hbase import hb_connection
+from mbase.db.mysql import mysql_connect
+from mbase.fields import BaseField, BaseFamily, EnumField
 
 
 class ModelMeta(type):
 
-    def __new__(cls, name, bases, attrs, **kwargs):
+    def __new__(cls, name, bases, attrs):
         super_new = super().__new__
         parents = [b for b in bases if isinstance(b, ModelMeta)]
         if not parents:
             return super_new(cls, name, bases, attrs)
-        new_class = super_new(cls, name, bases, attrs, **kwargs)
+        new_class = super_new(cls, name, bases, attrs)
         model_manages.register(new_class.TABLE_NAME, new_class)
+        new_class.fields = new_class.get_fields()
+        # 枚举对象 添加文字描述
+        for attr, attr_obj in new_class.fields.items():
+            if isinstance(attr_obj, EnumField):
+                text_dict_key = f'{attr.upper()}_TEXT'
+                text_attr_name = f'{attr}_text'
+                if text_dict_key in new_class.__dict__:
+                    text_dict = new_class.__dict__[text_dict_key]
+                    attr_name = attr
+                    def _get_text(self):
+                        raw_value = self.__dict__.get(attr_name)
+                        # print(attr_name, raw_value, text_dict)
+                        return text_dict.get(raw_value)
+
+                    setattr(new_class, text_attr_name, property(_get_text, None, None))
         return new_class
 
 
 class BaseModel(metaclass=ModelMeta):
+    # 表名
     TABLE_NAME = ''
+    # 连接
     conn = hb_connection
 
+    # MYSQL 专用字段
+    PK_NAME = 'id'
+    # 库名
+    DB_NAME = ''
+    # 可以查询的字段
+    QUERY_FIELDS = []
+
     def __init__(self, **fields):
-        # print('init fields', fields)
-        self.fields = self.__class__.get_fields()
         # 主键
-        self.pk = ''
-        # 统计列信息
+        self.id = ''
+        # 列信息
         for attr, attr_obj in self.fields.items():
             if attr in fields:
                 params_attr_obj = fields[attr]
@@ -106,15 +130,15 @@ class BaseModel(metaclass=ModelMeta):
 
     def save(self):
         # 保存数据
-        if not self.pk:
+        if not self.id:
             print('instance no pk')
             return
         # 持久化
-        self.conn.batch_insert(self.__class__.TABLE_NAME, [[self.pk, self.to_db()]])
+        self.conn.batch_insert(self.__class__.TABLE_NAME, [[self.id, self.to_db()]])
 
     def delete(self, fields: List[Optional[BaseField]] = []):
         # 删除整行 或者删除整列。暂不支持列族下的子列
-        if not self.pk:
+        if not self.id:
             print('instance no pk')
             return
 
@@ -125,7 +149,8 @@ class BaseModel(metaclass=ModelMeta):
                     columns.append(field)
                 else:
                     columns.append(field.db_name())
-        is_ok = self.conn.delete(self.__class__.TABLE_NAME, self.pk, columns=columns)
+
+        is_ok = self.conn.delete(self.__class__.TABLE_NAME, self.id, columns=columns)
         if not is_ok:
             print('delete error')
         return
@@ -223,7 +248,7 @@ class BaseModel(metaclass=ModelMeta):
 
             instance = cls()
             instance.to_python(raw_json)
-            instance.pk = key
+            instance.id = key
             result[key] = instance
 
         return result
@@ -235,3 +260,211 @@ class BaseModel(metaclass=ModelMeta):
             print("no pk")
             return
         return cls.get_items_by_pks([pk, ]).get(pk)
+
+
+class MysqlBaseModel(BaseModel):
+
+    # 库名 MYSQL 专用字段
+    DB_NAME = ''
+    # 表名
+    TABLE_NAME = ''
+    # MYSQL 专用字段
+    PK_NAME = 'id'
+    # 连接
+    conn = mysql_connect
+
+    def to_python(self, value_dict: dict = {}):
+        # 各个字段具体格式转换
+        for k, v in value_dict.items():
+            if k in self.fields:
+                f_obj = self.fields[k]
+                if isinstance(f_obj, BaseFamily):
+                    f_obj.to_python(v)
+                    setattr(self, k, f_obj)
+                else:
+                    value = f_obj.to_python(v)
+                    setattr(self, k, value)
+
+    def to_db(self) -> dict:
+        # 值转换成字符串形式。供持久化使用
+        db_dict = {}
+        for k, value in self.__dict__.items():
+            f_obj = self.fields.get(k)
+            if not f_obj:
+                continue
+            if isinstance(f_obj, BaseFamily):
+                f_dict = f_obj.to_db(is_hb=False)
+            elif isinstance(f_obj, BaseField):
+                value = self.__dict__[k]
+                f_dict = f_obj.to_db(value, is_hb=False)
+            else:
+                continue
+            db_dict.update(f_dict)
+        return db_dict
+
+    def save(self):
+        # 保存数据
+        # 初始化版本信息
+        if 'dver' in self.fields:
+            # 描述符 有默认值。判断有无得从__dict__ 来搞
+            if 'dver' not in self.__dict__:
+                self.dver = 0
+        # 添加时间戳
+        tm = int(time.time() * 1000)
+
+        if 'create_time' in self.fields and 'create_time' not in self.__dict__:
+            self.create_time = tm
+        if 'update_time' in self.fields:
+            self.update_time = tm
+
+        if not self.id:
+            # 没有主键
+            if self.PK_NAME != 'id':
+                # 主键不是默认的。并且没有值不允许执行
+                print('pk is null can not save')
+                return
+            else:
+                # 主键是默认的ID。直接插入
+                id = self.conn.insert(self.DB_NAME, self.TABLE_NAME, self.to_db())
+                self.id = id
+        else:
+            # 更新版本用所以不用再实例化为对象。
+            raw_dict = self.conn.get_by_pk(self.DB_NAME, self.TABLE_NAME, self.id)
+            if raw_dict:
+                # 处理版本信息
+                if 'dver' in self.fields:
+                    old_version = raw_dict.get('dver', 0)
+                    if old_version is not None:
+                        self.dver = old_version + 1 if old_version < 127 else 0
+                # 存在更新
+                self.conn.update(self.DB_NAME,
+                                 self.TABLE_NAME,
+                                 self.id,
+                                 self.to_db(),
+                                 self.PK_NAME)
+            else:
+                # 插入
+                self.conn.insert(self.DB_NAME, self.TABLE_NAME, self.to_db())
+
+    def delete(self):
+        # 删除对象
+        if not self.id:
+            print('instance no pk')
+        else:
+            is_ok = self.conn.delete(self.__class__.DB_NAME, self.__class__.TABLE_NAME, self.id)
+            if not is_ok:
+                print('delete error')
+
+    @classmethod
+    def get_fields(cls):
+        fields = {}
+        for attr, attr_obj in cls.__dict__.items():
+            if attr.startswith("__"):
+                continue
+            if isinstance(attr_obj, BaseFamily):
+                # 如果没有指定db里的列 使用默认的
+                if not attr_obj.family:
+                    attr_obj.update_family_name(attr)
+                fields[attr] = attr_obj
+            elif isinstance(attr_obj, BaseField):
+                # 如果没有指定db里的列 使用默认的
+                if not attr_obj.name:
+                    attr_obj.name = attr
+                # 设置主键名称
+                if attr_obj.is_pk:
+                    cls.PK_NAME = attr_obj.name
+                # 做了字段映射
+                if attr_obj.column_mapping:
+                    cls.QUERY_FIELDS.append(attr_obj.name)
+                fields[attr] = attr_obj
+
+        return fields
+
+    @classmethod
+    def generate_table_config(cls) -> dict:
+        # 生成数据库表信息
+        table = {}
+        return table
+
+    @classmethod
+    def create_table(cls) -> bool:
+        # 创建表
+        is_ok = False
+
+        return is_ok
+
+    @classmethod
+    def get_by_pks(cls, pk_list: List[str], pk_name: str = '') -> dict:
+
+        result = {}
+
+        if not pk_name:
+            pk_name = cls.PK_NAME
+
+        raw_lines_dict = cls.conn.get_by_pks(cls.DB_NAME, cls.TABLE_NAME, pk_list, pk_name=pk_name)
+
+        for key, raw_json in raw_lines_dict.items():
+            instance = cls()
+            instance.to_python(raw_json)
+            instance.id = raw_json['pk']
+            result[key] = instance
+
+        return result
+
+    @classmethod
+    def get(cls, pk: str = '', pk_name: str = ''):
+
+        if not pk:
+            print("no pk")
+            return
+        return cls.get_by_pks([pk, ], pk_name=pk_name).get(pk)
+
+    @classmethod
+    def get_page_items(cls, **filter) -> list:
+        # 根据查询条件分页获取数据
+        #filter 里需要有
+        # cursor: int = 0
+        # limit: int = 10
+        # desc: bool = True
+
+        result = []
+        query = {}
+        for field, value in filter.items():
+            if field not in cls.QUERY_FIELDS:
+                continue
+            else:
+                query[field] = value
+        cursor = int(filter.get('cursor', 0))
+        limit = int(filter.get('limit', 10))
+        desc = bool(filter.get('desc', True))
+
+        items = cls.conn.query(cls.DB_NAME,
+                               cls.TABLE_NAME,
+                               query,
+                               cursor=cursor,
+                               limit=limit,
+                               desc=desc,
+                               pk_name=cls.PK_NAME)
+
+        for item in items:
+            pk = item['pk']
+            obj = cls()
+            obj.to_python(item)
+            obj.id = pk
+            result.append(obj)
+
+        return result
+
+    @classmethod
+    def get_query_count(cls, **filter) -> int:
+        count = 0
+        query = {}
+        for field, value in filter.items():
+            if field not in cls.QUERY_FIELDS:
+                continue
+            else:
+                query[field] = value
+
+        count = cls.conn.query_count(cls.DB_NAME, cls.TABLE_NAME, query)
+        return count
+

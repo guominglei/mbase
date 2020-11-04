@@ -7,7 +7,9 @@
     @Time    : 2020-10-30
 '''
 
+import time
 from typing import Optional
+from enum import IntEnum
 
 DB_OPTIONS_PARAMS_KEY = [
     "max_versions",
@@ -23,10 +25,18 @@ DB_OPTIONS_PARAMS_KEY = [
 
 class BaseField(object):
     DATA_TYPE = str
+    DEFAULT = None
 
     def __init__(self,
                  name='',
                  family: str = '',
+                 # MySQL 专用字段
+                 # 是否是主键
+                 is_pk: bool = False,
+                 # 是否进行字段映射。 默认不映射。
+                 # 没有映射的字段 不能进行字段条件查询
+                 column_mapping: bool = False,
+
                  # db定义字段
                  max_versions: Optional[int] = None,
                  compression: Optional[str] = None,
@@ -39,6 +49,8 @@ class BaseField(object):
                  ):
         self.name = name
         self.family = family
+        self.is_pk = is_pk
+        self.column_mapping = column_mapping
 
         self.max_versions = max_versions
         self.compression = compression
@@ -59,10 +71,11 @@ class BaseField(object):
         if instance is None:
             return self
         data = instance.__dict__
+        # mysql 时 需要处理下。
         if isinstance(instance, BaseFamily):
             if self.name not in instance.__dict__:
                 return self.db_name()
-        return data[self.name]
+        return data.get(self.name, self.DEFAULT)
 
     def __set__(self, instance, value):
         if isinstance(value, self.__class__.DATA_TYPE):
@@ -75,14 +88,22 @@ class BaseField(object):
         # 子类具体实现
         return self.__class__.DATA_TYPE(value_str)
 
-    def db_name(self) -> str:
-        name = f'{self.name}:'
-        if self.family:
-            name = f'{self.family}:{self.name}'
+    def db_name(self, is_hb: bool = True) -> str:
+        if is_hb:
+            # HBASE 字段有上下级关系
+            name = f'{self.name}:'
+            if self.family:
+                name = f'{self.family}:{self.name}'
+        else:
+            # MySQL字段名称不需要前缀
+            name = self.name
         return name
 
-    def to_db(self, value) -> dict:
-        return {self.db_name(): str(value)}
+    def to_db(self, value, is_hb: bool = True) -> dict:
+        if is_hb:
+            return {self.db_name(is_hb): str(value)}
+        else:
+            return {self.db_name(is_hb): value}
 
 
 class StringField(BaseField):
@@ -95,15 +116,111 @@ class StringField(BaseField):
 
 class IntField(BaseField):
     DATA_TYPE = int
+    DEFAULT = 0
 
 
 class FloatField(BaseField):
     DATA_TYPE = float
+    DEFAULT = 0
 
     def to_python(self, raw: str = ''):
         if raw:
             self.value = round(float(raw), 2)
         return self.value
+
+
+class DateTimeField(BaseField):
+    DATA_TYPE = int
+    DEFAULT = 0
+
+    @classmethod
+    def format(cls, tm_msint: int):
+        # 格式化数据
+        return time.strftime(
+            '%Y-%m-%d %H:%M:%S', time.localtime(tm_msint / 1000)
+        )
+
+
+class ListField(BaseField):
+    # 目前只支MySQL
+    DATA_TYPE = list
+    DEFAULT = []
+
+    def __init__(self, name='', family: str = ''):
+        self.name = name
+        self.family = family
+        self.is_pk = False
+        self.column_mapping = False
+
+    def __unicode__(self):
+        return f"{self.name}:"
+
+    def __get__(self, instance, cls):
+        if instance is None:
+            return self
+        data = instance.__dict__
+        return data.get(self.name, [])
+
+
+class EnumField(BaseField):
+    # 只支持MySQL
+    DATA_TYPE = int
+    DEFAULT = 1
+
+    def __init__(self,
+                 name='',
+                 family: str = '',
+                 # MySQL 专用字段
+                 # 是否进行字段映射。 默认不映射。
+                 # 没有映射的字段 不能进行字段条件查询
+                 column_mapping: bool = False,
+                 enum_class: IntEnum =None,
+                 ):
+        self.name = name
+        self.family = family
+        self.is_pk = False
+        self.column_mapping = column_mapping
+        self.enum_class = enum_class
+
+    def __unicode__(self):
+        if self.family:
+            return f"{self.family}:{self.name}"
+        else:
+            return f"{self.name}:"
+
+    def __get__(self, instance, cls):
+        if instance is None:
+            return self
+        data = instance.__dict__
+        return self.enum_class(data.get(self.name, self.DEFAULT))
+
+    def __set__(self, instance, value):
+        if isinstance(value, self.__class__.DATA_TYPE):
+            instance.__dict__[self.name] = value
+            # print(f'set:{self.name}:{value}')
+        else:
+            print("赋值类型错误", f'set:{self.name}:{value}', self.__class__.DATA_TYPE, type(value))
+
+    def to_python(self, value_str: str = ''):
+        # 子类具体实现
+        return self.__class__.DATA_TYPE(value_str)
+
+    def db_name(self, is_hb: bool = True) -> str:
+        if is_hb:
+            # HBASE 字段有上下级关系
+            name = f'{self.name}:'
+            if self.family:
+                name = f'{self.family}:{self.name}'
+        else:
+            # MySQL字段名称不需要前缀
+            name = self.name
+        return name
+
+    def to_db(self, value, is_hb: bool = True) -> dict:
+        if is_hb:
+            return {self.db_name(is_hb): str(value)}
+        else:
+            return {self.db_name(is_hb): value}
 
 
 class BaseFamily(object):
@@ -148,12 +265,12 @@ class BaseFamily(object):
                 value = f_obj.to_python(v)
                 setattr(self, k, value)
 
-    def to_db(self) -> dict:
+    def to_db(self, is_hb: bool = True) -> dict:
         # 值转换成字符串形式。供持久化使用
         db_dict = {}
         for k, f_obj in self.fields.items():
             if k in self.__dict__:
                 value = self.__dict__[k]
-                f_dict = f_obj.to_db(value)
+                f_dict = f_obj.to_db(value, is_hb=is_hb)
                 db_dict.update(f_dict)
         return db_dict

@@ -4,9 +4,8 @@
     @Author  : minglei.guo
     @Contact : minglei@skyplatanus.com
     @Version : 1.0
-    @Time    : 2020-10-30
+    @Time    : 2020-11-03
 '''
-
 from typing import Iterable, List
 
 import happybase
