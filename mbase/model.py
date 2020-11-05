@@ -430,7 +430,14 @@ class MysqlBaseModel(BaseModel):
         result = []
         query = {}
         for field, value in filter.items():
-            if field not in cls.QUERY_FIELDS:
+            # 支持运算符
+            if '__' in field:
+                f, _ = field.split('__')
+                if f not in cls.QUERY_FIELDS:
+                    continue
+                else:
+                    query[field] = value
+            elif field not in cls.QUERY_FIELDS:
                 continue
             else:
                 query[field] = value
@@ -460,7 +467,14 @@ class MysqlBaseModel(BaseModel):
         count = 0
         query = {}
         for field, value in filter.items():
-            if field not in cls.QUERY_FIELDS:
+            # 支持运算符
+            if '__' in field:
+                f, _ = field.split('__')
+                if f not in cls.QUERY_FIELDS:
+                    continue
+                else:
+                    query[field] = value
+            elif field not in cls.QUERY_FIELDS:
                 continue
             else:
                 query[field] = value

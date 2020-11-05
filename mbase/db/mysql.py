@@ -15,16 +15,14 @@ import pymysql
 from mbase.config import MYSQL_CONFIG
 
 
-def init_connection() -> dict:
-    conn_dict = {}
-    for db_name, config in MYSQL_CONFIG.items():
-        conn = pymysql.connect(host=config.get('host'),
-                               user=config.get('user'),
-                               password=config.get('password'),
-                               db=config.get('db'),
-                               charset=config.get('charset'))
-        conn_dict[db_name] = conn
-    return conn_dict
+# 运算符字典
+OP_DICT = {
+    'gte': '>=',
+    'gt': '>',
+    'lte': '<=',
+    'lt': '<',
+    'ne': '<>',
+}
 
 
 class MConnection(object):
@@ -183,10 +181,13 @@ class MConnection(object):
         args = []
 
         for column, value in query_dict.items():
-            if isinstance(value, int):
-                if value >= 0:
-                    query_arr.append(f'{column}=%s')
-                    args.append(value)
+            if '__' in column:
+                column, op = column.split('__')
+                mysql_op = OP_DICT.get(op, None)
+                if not mysql_op:
+                    continue
+                query_arr.append(f'{column}{mysql_op}%s')
+                args.append(value)
             else:
                 query_arr.append(f'{column}=%s')
                 args.append(value)
@@ -245,7 +246,14 @@ class MConnection(object):
         args = []
 
         for column, value in query_dict.items():
-            if value >= 0:
+            if '__' in column:
+                column, op = column.split('__')
+                mysql_op = OP_DICT.get(op, None)
+                if not mysql_op:
+                    continue
+                query_arr.append(f'{column}{mysql_op}%s')
+                args.append(value)
+            else:
                 query_arr.append(f'{column}=%s')
                 args.append(value)
 
