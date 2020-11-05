@@ -351,9 +351,8 @@ class MysqlBaseModel(BaseModel):
         if not self.id:
             print('instance no pk')
         else:
-            is_ok = self.conn.delete(self.__class__.DB_NAME, self.__class__.TABLE_NAME, self.id)
-            if not is_ok:
-                print('delete error')
+            self.conn.delete(self.__class__.DB_NAME, self.__class__.TABLE_NAME, self.id)
+            self.id = None
 
     @classmethod
     def get_fields(cls):
