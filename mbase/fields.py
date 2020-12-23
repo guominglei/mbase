@@ -278,7 +278,7 @@ class BaseFamily(object):
 
 class Index(object):
 
-    def __init__(self, field_list, index_name: str = ''):
+    def __init__(self, *field_list, index_name: str = ''):
 
         self.index_name = index_name
         self.field_list = field_list
