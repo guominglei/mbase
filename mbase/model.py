@@ -14,7 +14,7 @@ from typing import Iterable, List, Optional
 from mbase.manager import model_manages
 from mbase.db.hbase import hb_connection
 from mbase.db.mysql import mysql_connect
-from mbase.fields import BaseField, BaseFamily, EnumField
+from mbase.fields import BaseField, BaseFamily, EnumField, Index
 
 
 class ModelMeta(type):
@@ -26,7 +26,7 @@ class ModelMeta(type):
             return super_new(cls, name, bases, attrs)
         new_class = super_new(cls, name, bases, attrs)
         model_manages.register(new_class.TABLE_NAME, new_class)
-        new_class.fields = new_class.get_fields()
+        new_class.fields, new_class.indexes = new_class.get_fields()
         # 枚举对象 添加文字描述
         for attr, attr_obj in new_class.fields.items():
             if isinstance(attr_obj, EnumField):
@@ -194,7 +194,7 @@ class BaseModel(metaclass=ModelMeta):
             "time_to_live",
         ]
         table = {}
-        for field_name, field_obj in cls.get_fields().items():
+        for field_name, field_obj in cls.fields.items():
             field_config = {}
             for parma_key in parma_keys:
                 value = getattr(field_obj, parma_key, None)
@@ -357,6 +357,7 @@ class MysqlBaseModel(BaseModel):
     @classmethod
     def get_fields(cls):
         fields = {}
+        indexs = []
         for attr, attr_obj in cls.__dict__.items():
             if attr.startswith("__"):
                 continue
@@ -376,8 +377,9 @@ class MysqlBaseModel(BaseModel):
                 if attr_obj.column_mapping:
                     cls.QUERY_FIELDS.append(attr_obj.name)
                 fields[attr] = attr_obj
-
-        return fields
+            elif isinstance(attr_obj, Index):
+                indexs.append(attr_obj)
+        return fields, indexs
 
     @classmethod
     def generate_table_config(cls) -> dict:
@@ -419,6 +421,27 @@ class MysqlBaseModel(BaseModel):
         return cls.get_by_pks([pk, ], pk_name=pk_name).get(pk)
 
     @classmethod
+    def find_index(cls, query_fields):
+        # 按查询条件匹配最长的索引（没有范围选择）
+        index_fields = []
+        max_length = 0
+
+        if not cls.indexes:
+            return index_fields
+
+        for index_obj in cls.indexes:
+
+            for max_len, field in enumerate(index_obj.field_list):
+                if field not in query_fields:
+                    if max_len > max_length:
+                        max_length = max_len
+                        index_fields = index_obj.field_list
+                    break
+
+        return index_fields
+
+
+    @classmethod
     def get_page_items(cls, **filter) -> list:
         # 根据查询条件分页获取数据
         #filter 里需要有
@@ -440,6 +463,10 @@ class MysqlBaseModel(BaseModel):
                 continue
             else:
                 query[field] = value
+
+        # 是否命中索引
+        index_fields = cls.find_index(filter)
+
         cursor = int(filter.get('cursor', 0))
         limit = int(filter.get('limit', 10))
         desc = bool(filter.get('desc', True))
@@ -450,7 +477,9 @@ class MysqlBaseModel(BaseModel):
                                cursor=cursor,
                                limit=limit,
                                desc=desc,
-                               pk_name=cls.PK_NAME)
+                               pk_name=cls.PK_NAME,
+                               index_fields=index_fields
+                               )
 
         for item in items:
             pk = item['pk']
@@ -477,7 +506,9 @@ class MysqlBaseModel(BaseModel):
                 continue
             else:
                 query[field] = value
+        # 是否命中索引
+        index_fields = cls.find_index(filter)
 
-        count = cls.conn.query_count(cls.DB_NAME, cls.TABLE_NAME, query)
+        count = cls.conn.query_count(cls.DB_NAME, cls.TABLE_NAME, query,index_fields=index_fields)
         return count
 

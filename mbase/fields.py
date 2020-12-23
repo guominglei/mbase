@@ -274,3 +274,11 @@ class BaseFamily(object):
                 f_dict = f_obj.to_db(value, is_hb=is_hb)
                 db_dict.update(f_dict)
         return db_dict
+
+
+class Index(object):
+
+    def __init__(self, field_list, index_name: str = ''):
+
+        self.index_name = index_name
+        self.field_list = field_list

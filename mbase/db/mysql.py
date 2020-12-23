@@ -171,7 +171,8 @@ class MConnection(object):
               cursor: int = 0,
               limit: int = 10,
               desc: bool = True,
-              pk_name: str = 'id'
+              pk_name: str = 'id',
+              index_fields: List[str] = [],
               ) -> List[dict]:
         # 分页获取数量
         result = []
@@ -180,6 +181,19 @@ class MConnection(object):
         query_arr = []
         args = []
 
+        if index_fields:
+            # 先组织索引查找条件
+            for column in index_fields:
+                if column in query_dict:
+                    value = query_dict.get(column)
+                    query_arr.append(f'{column}=%s')
+                    args.append(value)
+                    # 查询条件已经用过了。删除
+                    query_dict.pop(column)
+                else:
+                    break
+
+        # 组织普通查找条件
         for column, value in query_dict.items():
             if '__' in column:
                 column, op = column.split('__')
@@ -237,13 +251,25 @@ class MConnection(object):
         return result
 
     @classmethod
-    def query_count(cls, db_name: str, table_name: str, query_dict: dict) -> int:
+    def query_count(cls, db_name: str, table_name: str, query_dict: dict, index_fields: List[str] = []) -> int:
         # 分页获取数量
         count = 0
 
         base_sql = f'select count(1) from {table_name} '
         query_arr = []
         args = []
+
+        if index_fields:
+            # 先组织索引查找条件
+            for column in index_fields:
+                if column in query_dict:
+                    value = query_dict.get(column)
+                    query_arr.append(f'{column}=%s')
+                    args.append(value)
+                    # 查询条件已经用过了。删除
+                    query_dict.pop(column)
+                else:
+                    break
 
         for column, value in query_dict.items():
             if '__' in column:
