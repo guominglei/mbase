@@ -436,10 +436,17 @@ class MysqlBaseModel(BaseModel):
                     if max_len > max_length:
                         max_length = max_len
                         index_fields = index_obj.field_list
+                        max_len = -1
                     break
 
-        return index_fields
+            if max_len > 0:
+                if not index_fields:
+                    index_fields = index_obj.field_list
+                else:
+                    if max_len > max_length:
+                        index_fields = index_obj.field_list
 
+        return index_fields
 
     @classmethod
     def get_page_items(cls, **filter) -> list:
