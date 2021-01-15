@@ -141,25 +141,136 @@ class DateTimeField(BaseField):
         )
 
 
+class ObjectField(BaseField):
+
+    DATA_TYPE = object
+    DEFAULT = None
+
+    def __init__(self, **attrs):
+        self.name = attrs.get('name', '')
+        self.family = ''
+        self.is_pk = False
+        self.column_mapping = False
+        self.fields = self.__class__.get_fields()
+        for attr, attr_obj in self.fields.items():
+            attr_obj.family = self.family
+            # 没有定义子列名称 使用默认的
+            if not attr_obj.name:
+                attr_obj.name = attr
+
+        for k, v in attrs.items():
+            setattr(self, k, v)
+
+    def __unicode__(self):
+        return self.name
+
+    @classmethod
+    def get_fields(cls) -> dict:
+        fields = {}
+        for attr, attr_obj in cls.__dict__.items():
+            if not attr.startswith("__") and isinstance(attr_obj, BaseField):
+                fields[attr] = attr_obj
+        return fields
+
+    def to_python(self, value_dict: dict = {}):
+        # 字符串形式转换成定义的形式。子类具体实现
+        for k, v in value_dict.items():
+            if k in self.fields:
+                f_obj = self.fields[k]
+                value = f_obj.to_python(v)
+                setattr(self, k, value)
+
+    def to_db(self, is_hb=False) -> dict:
+        # 值转换成字符串形式。供持久化使用
+        db_dict = {}
+        for k, f_obj in self.fields.items():
+            if k in self.__dict__:
+                value = self.__dict__[k]
+                f_dict = f_obj.to_db(value, is_hb=False)
+                db_dict.update(f_dict)
+        return db_dict
+
+
 class ListField(BaseField):
     # 目前只支MySQL
-    DATA_TYPE = list
-    DEFAULT = []
 
-    def __init__(self, name='', family: str = ''):
+    def __init__(self, name='', family: str = '', item_class=None):
         self.name = name
         self.family = family
         self.is_pk = False
         self.column_mapping = False
+        self.item_cls = item_class
+        self.items = []
 
     def __unicode__(self):
         return f"{self.name}:"
 
-    def __get__(self, instance, cls):
+    def __set__(self, instance, value):
+        if isinstance(value, list):
+            self.items = value
+            instance.__dict__[self.name] = self
+        else:
+            instance.__dict__[self.name] = value
+
+    def __get__(self, instance, name):
         if instance is None:
             return self
         data = instance.__dict__
-        return data.get(self.name, [])
+        if self.name not in instance.__dict__:
+            instance.__dict__[self.name] = self
+        return data.get(self.name, self)
+
+    def __iter__(self):
+        return self.items
+
+    def __getitem__(self, index):
+        return self.items[index]
+
+    def count(self):
+        return len(self.items)
+
+    def __len__(self):
+        return len(self.items)
+
+    def append(self, item):
+        if isinstance(item, self.item_cls):
+            self.items.append(item)
+
+    def insert(self, index, item):
+        if isinstance(item, self.item_cls):
+            self.items.insert(index, item)
+
+    def pop(self, index):
+        return self.items.pop(index)
+
+    def clear(self):
+        self.items = []
+
+    def to_db(self, is_hb=False) -> dict:
+        #
+        result = {}
+        values = []
+        for item in self.items:
+            if isinstance(item, ObjectField):
+                db_dict = item.to_db(is_hb=False)
+                values.append(db_dict)
+            else:
+                values = self.items
+
+        return values
+
+    def to_python(self, value_list: list = []):
+        # 从DB还原成对象
+        items = []
+        # 处理子对象
+        for item in value_list:
+            if isinstance(item, dict):
+                ins = self.item_cls()
+                ins.to_python(value_dict=item)
+                items.append(ins)
+            else:
+                items.append(item)
+        self.items = items
 
 
 class EnumField(BaseField):

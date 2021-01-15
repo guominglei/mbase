@@ -14,7 +14,7 @@ from typing import Iterable, List, Optional
 from mbase.manager import model_manages
 from mbase.db.hbase import hb_connection
 from mbase.db.mysql import mysql_connect
-from mbase.fields import BaseField, BaseFamily, EnumField, Index
+from mbase.fields import BaseField, BaseFamily, EnumField, Index, ObjectField, ListField
 
 
 class ModelMeta(type):
@@ -278,7 +278,7 @@ class MysqlBaseModel(BaseModel):
         for k, v in value_dict.items():
             if k in self.fields:
                 f_obj = self.fields[k]
-                if isinstance(f_obj, BaseFamily):
+                if isinstance(f_obj, (ObjectField, ListField)):
                     f_obj.to_python(v)
                     setattr(self, k, f_obj)
                 else:
@@ -292,8 +292,14 @@ class MysqlBaseModel(BaseModel):
             f_obj = self.fields.get(k)
             if not f_obj:
                 continue
-            if isinstance(f_obj, BaseFamily):
-                f_dict = f_obj.to_db(is_hb=False)
+            if isinstance(f_obj, ObjectField):
+                f_dict = {
+                    f_obj.name: f_obj.to_db(is_hb=False)
+                }
+            elif isinstance(f_obj, ListField):
+                f_dict = {
+                    f_obj.name: f_obj.to_db(is_hb=False)
+                }
             elif isinstance(f_obj, BaseField):
                 value = self.__dict__[k]
                 f_dict = f_obj.to_db(value, is_hb=False)

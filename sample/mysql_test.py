@@ -9,7 +9,7 @@
 
 from mbase.config import MYSQL_CONFIG
 from mbase.model import MysqlBaseModel
-from mbase.fields import IntField, StringField, DateTimeField
+from mbase.fields import IntField, StringField, DateTimeField, ListField, ObjectField
 
 
 MYSQL_CONFIG["crucio_insight"] = {
@@ -21,6 +21,17 @@ MYSQL_CONFIG["crucio_insight"] = {
     }
 
 
+class User(ObjectField):
+
+    name = StringField()
+    age = IntField()
+
+
+class Address(ObjectField):
+    name = StringField()
+    num = IntField()
+
+
 class App(MysqlBaseModel):
     DB_NAME = 'crucio_insight'
     TABLE_NAME = 'app'
@@ -29,25 +40,31 @@ class App(MysqlBaseModel):
     create_time = DateTimeField()
     update_time = DateTimeField()
     dver = IntField(column_mapping=True)
+    user = User()
+    address = ListField(item_class=Address)
 
 
 def save_test():
 
+    user = User(name='hhh', age=12)
+    address_1 = Address(name='name_1', num=1)
+    address_2 = Address(name='name_2', num=2)
     app = App(name='你猜我猜')
+    app.user = user
+    # 方式1
+    #app.address.append(address_1)
+    #app.address.append(address_2)
+    # 方式2
+    app.address = [address_1, address_2]
     app.save()
 
 
 def get_test():
-    import time
-    num = 0
-    while 1:
-        app = App.get('你猜我猜', pk_name='name')
-        if app:
-            print(app.name, app.create_time)
-        time.sleep(30)
-        num += 1
-        if num == 10:
-            break
+
+    app = App.get('你猜我猜', pk_name='name')
+    print(app.__dict__)
+    print(app.name, app.user.name)
+    print(len(app.address), app.address[0].num)
 
 
 if __name__ == '__main__':
