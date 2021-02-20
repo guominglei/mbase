@@ -221,7 +221,7 @@ class ListField(BaseField):
         return data.get(self.name, self)
 
     def __iter__(self):
-        return self.items
+        return iter(self.items)
 
     def __getitem__(self, index):
         return self.items[index]
