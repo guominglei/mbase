@@ -119,14 +119,27 @@ class IntField(BaseField):
     DEFAULT = 0
 
 
+class BoolField(BaseField):
+    DATA_TYPE = bool
+    DEFAULT = False
+
+
 class FloatField(BaseField):
     DATA_TYPE = float
     DEFAULT = 0
 
     def to_python(self, raw: str = ''):
+        value = 0
         if raw:
-            self.value = round(float(raw), 2)
-        return self.value
+            value = round(float(raw), 2)
+        return value
+
+    def __set__(self, instance, value):
+        if isinstance(value, self.__class__.DATA_TYPE):
+            instance.__dict__[self.name] = value
+            # print(f'set:{self.name}:{value}')
+        else:
+            instance.__dict__[self.name] = self.__class__.DATA_TYPE(value)
 
 
 class DateTimeField(BaseField):
