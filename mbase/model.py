@@ -279,8 +279,9 @@ class MysqlBaseModel(BaseModel):
             if k in self.fields:
                 f_obj = self.fields[k]
                 if isinstance(f_obj, (ObjectField, ListField)):
-                    f_obj.to_python(v)
-                    setattr(self, k, f_obj)
+                    fb = deepcopy(f_obj)
+                    fb.to_python(v)
+                    setattr(self, k, fb)
                 else:
                     value = f_obj.to_python(v)
                     setattr(self, k, value)

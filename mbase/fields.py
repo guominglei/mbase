@@ -6,10 +6,12 @@
     @Version : 1.0
     @Time    : 2020-10-30
 '''
-
+import copy
 import time
 from typing import Optional
 from enum import IntEnum
+from datetime import datetime
+
 
 DB_OPTIONS_PARAMS_KEY = [
     "max_versions",
@@ -146,6 +148,17 @@ class DateTimeField(BaseField):
     DATA_TYPE = int
     DEFAULT = 0
 
+    def __get__(self, instance, cls):
+        # 返回一个 datetime 对象。
+        if instance is None:
+            return self
+        data = instance.__dict__
+        if self.name in data:
+            date_time = datetime.fromtimestamp(data.get(self.name)/1000)
+        else:
+            date_time = datetime.now()
+        return date_time
+
     @classmethod
     def format(cls, tm_msint: int):
         # 格式化数据
@@ -220,10 +233,31 @@ class ListField(BaseField):
 
     def __set__(self, instance, value):
         if isinstance(value, list):
-            self.items = value
-            instance.__dict__[self.name] = self
-        else:
+            tmp_list = []
+            if self.item_cls:
+                for item in value:
+                    if isinstance(item, self.item_cls):
+                        tmp_list.append(item)
+            else:
+                tmp_list = value
+            attr = copy.deepcopy(self)
+            attr.items = tmp_list
+            instance.__dict__[self.name] = attr
+
+        elif isinstance(value, BaseField):
             instance.__dict__[self.name] = value
+        else:
+            tmp_list = []
+            if self.item_cls:
+                if isinstance(value, self.item_cls):
+                    tmp_list.append(value)
+                else:
+                    raise
+            else:
+                tmp_list.append(value)
+            attr = copy.deepcopy(self)
+            attr.items = tmp_list
+            instance.__dict__[self.name] = attr
 
     def __get__(self, instance, name):
         if instance is None:
