@@ -159,6 +159,14 @@ class DateTimeField(BaseField):
             date_time = datetime.now()
         return date_time
 
+    def __set__(self, instance, value):
+        if isinstance(value, self.__class__.DATA_TYPE):
+            instance.__dict__[self.name] = value
+        elif isinstance(value, datetime):
+            instance.__dict__[self.name] = int(time.mktime(value.timetuple()) * 1000)
+        else:
+            instance.__dict__[self.name] = self.__class__.DATA_TYPE(value)
+
     @classmethod
     def format(cls, tm_msint: int):
         # 格式化数据
@@ -262,10 +270,12 @@ class ListField(BaseField):
     def __get__(self, instance, name):
         if instance is None:
             return self
-        data = instance.__dict__
+
         if self.name not in instance.__dict__:
-            instance.__dict__[self.name] = self
-        return data.get(self.name, self)
+            instance.__dict__[self.name] = self.__class__(item_class=self.item_cls)
+        data = instance.__dict__
+
+        return data.get(self.name)
 
     def __iter__(self):
         return iter(self.items)
