@@ -67,8 +67,21 @@ def get_test():
     print(len(app.address), app.address[0].num)
 
 
+def f_test():
+
+    app = App()
+
+    address = Address(name='1', num=2)
+    print(app.address.items)
+
+    app.address = address
+
+    print(app.address.items)
+
+
 if __name__ == '__main__':
 
     # save_test()
-    get_test()
+    #get_test()
+    f_test()
 

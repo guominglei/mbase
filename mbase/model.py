@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import Iterable, List, Optional
 
 from mbase.manager import model_manages
-from mbase.db.hbase import hb_connection
+#from mbase.db.hbase import hb_connection
 from mbase.db.mysql import mysql_connect
 from mbase.fields import BaseField, BaseFamily, EnumField, Index, ObjectField, ListField
 
@@ -48,7 +48,7 @@ class BaseModel(metaclass=ModelMeta):
     # 表名
     TABLE_NAME = ''
     # 连接
-    conn = hb_connection
+    conn = None
 
     # MYSQL 专用字段
     PK_NAME = 'id'
@@ -527,3 +527,8 @@ class MysqlBaseModel(BaseModel):
         count = cls.conn.query_count(cls.DB_NAME, cls.TABLE_NAME, query,index_fields=index_fields)
         return count
 
+    @classmethod
+    def raw_query(cls, sql: str):
+
+        result = cls.conn.raw_query(cls.DB_NAME, sql)
+        return result
