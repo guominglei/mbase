@@ -241,15 +241,23 @@ class ListField(BaseField):
 
     def __set__(self, instance, value):
 
-        tmp_list = []
-        if isinstance(value, list):
+        if isinstance(value, self.__class__):
+            instance.__dict__[self.name] = value
+
+        elif isinstance(value, list):
+            tmp_list = []
             if self.item_cls:
                 for item in value:
                     if isinstance(item, self.item_cls):
                         tmp_list.append(item)
             else:
                 tmp_list = value
+            attr = copy.deepcopy(self)
+            attr.items = tmp_list
+            instance.__dict__[self.name] = attr
+
         else:
+            tmp_list = []
             if self.item_cls:
                 if isinstance(value, self.item_cls):
                     tmp_list.append(value)
@@ -257,21 +265,9 @@ class ListField(BaseField):
                     raise
             else:
                 tmp_list.append(value)
-
-        if self.name not in instance.__dict__:
-            # 属性没有，新建
             attr = copy.deepcopy(self)
             attr.items = tmp_list
             instance.__dict__[self.name] = attr
-        else:
-            attr = instance.__dict__[self.name]
-            if isinstance(attr, self.__class__):
-                attr.items = tmp_list
-            else:
-                # 如果属性 类型不对，重新赋值
-                attr = copy.deepcopy(self)
-                attr.items = tmp_list
-                instance.__dict__[self.name] = attr
 
     def __get__(self, instance, name):
         if instance is None:

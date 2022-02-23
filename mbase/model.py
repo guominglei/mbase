@@ -278,9 +278,14 @@ class MysqlBaseModel(BaseModel):
         for k, v in value_dict.items():
             if k in self.fields:
                 f_obj = self.fields[k]
-                if isinstance(f_obj, (ObjectField, ListField)):
-                    # 实例化 对象类字段
+                if isinstance(f_obj, ObjectField):
+                    # 重新初始化一个类对象
                     fb = f_obj.__class__()
+                    #fb = deepcopy(f_obj)
+                    fb.to_python(v)
+                    setattr(self, k, fb)
+                elif isinstance(f_obj, ListField):
+                    fb = f_obj.__class__(item_class=f_obj.item_cls)
                     fb.to_python(v)
                     setattr(self, k, fb)
                 else:
