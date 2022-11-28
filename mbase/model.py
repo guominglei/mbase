@@ -27,20 +27,7 @@ class ModelMeta(type):
         new_class = super_new(cls, name, bases, attrs)
         model_manages.register(new_class.TABLE_NAME, new_class)
         new_class.fields, new_class.indexes = new_class.get_fields()
-        # 枚举对象 添加文字描述
-        for attr, attr_obj in new_class.fields.items():
-            if isinstance(attr_obj, EnumField):
-                text_dict_key = f'{attr.upper()}_TEXT'
-                text_attr_name = f'{attr}_text'
-                if text_dict_key in new_class.__dict__:
-                    text_dict = new_class.__dict__[text_dict_key]
-                    attr_name = attr
-                    def _get_text(self):
-                        raw_value = self.__dict__.get(attr_name)
-                        # print(attr_name, raw_value, text_dict)
-                        return text_dict.get(raw_value)
 
-                    setattr(new_class, text_attr_name, property(_get_text, None, None))
         return new_class
 
 
@@ -537,3 +524,26 @@ class MysqlBaseModel(BaseModel):
 
         result = cls.conn.raw_query(cls.DB_NAME, sql)
         return result
+
+    @classmethod
+    def objects(cls):
+        # 遍历所有对象
+        cursor = 0
+        num = 100
+        while 1:
+            items = cls.get_page_items(cursor=cursor, limit=num)
+            for item in items:
+                yield item
+            if len(items) < num:
+                break
+            else:
+                cursor += num
+
+    def __getattr__(self, attr_name):
+
+        if attr_name.endswith('_text'):
+            attr = attr_name[:-5]
+            text_dict_key = f'{attr.upper()}_TEXT'
+            text_dict = self.__class__.__dict__[text_dict_key]
+            raw_value = self.__dict__.get(attr)
+            return text_dict.get(raw_value)
