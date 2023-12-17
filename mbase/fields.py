@@ -325,8 +325,11 @@ class ListField(BaseField):
         for item in value_list:
             if isinstance(item, dict):
                 ins = self.item_cls()
-                ins.to_python(value_dict=item)
-                items.append(ins)
+                if isinstance(ins, dict):
+                    items.append(item)
+                else:
+                    ins.to_python(value_dict=item)
+                    items.append(ins)
             else:
                 items.append(item)
         self.items = items

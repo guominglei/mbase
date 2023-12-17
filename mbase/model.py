@@ -284,15 +284,15 @@ class MysqlBaseModel(BaseModel):
         db_dict = {}
         for k, value in self.__dict__.items():
             f_obj = self.fields.get(k)
-            if not f_obj:
+            if k not in self.fields:
                 continue
-            if isinstance(f_obj, ObjectField):
+            if isinstance(value, ObjectField):
                 f_dict = {
-                    f_obj.name: f_obj.to_db(is_hb=False)
+                    f_obj.name: value.to_db(is_hb=False)
                 }
-            elif isinstance(f_obj, ListField):
+            elif isinstance(value, ListField):
                 f_dict = {
-                    f_obj.name: f_obj.to_db(is_hb=False)
+                    f_obj.name: value.to_db(is_hb=False)
                 }
             elif isinstance(f_obj, BaseField):
                 value = self.__dict__[k]
